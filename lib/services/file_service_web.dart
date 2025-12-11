@@ -1,0 +1,59 @@
+import 'dart:convert';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart'; // for debugPrint
+// ignore: avoid_web_libraries_in_flutter
+// import 'dart:html' as html; // Unused
+import '../models/file_system_entity.dart';
+import 'file_service_interface.dart';
+
+class FileServiceImpl implements FileService {
+  // Cache content since we can't re-read paths on web easily without keeping the file object
+  // In a real app we might store the PlatformFile bytes in the FileNodeFile or a separate cache
+  final Map<String, Uint8List> _contentCache = {};
+
+  @override
+  Future<FileNodeDirectory?> pickDirectory() async {
+    // On Web, ensure we ask for files.
+    // note: 'type: FileType.any' is default.
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        withData: true, // Important for Web to get bytes immediately
+      );
+
+      if (result == null || result.files.isEmpty) return null;
+
+      // Web doesn't give us a folder structure, just a list of files.
+      // We'll simulate a "root" folder containing these files.
+      // If we wanted to preserve hierarchy (if drag-drop supported it), it's harder.
+      // For standard 'pickFiles', it's usually flat list.
+
+      List<FileNode> children = [];
+      String rootName = 'Uploaded Files';
+
+      for (var file in result.files) {
+        // Create a unique path key
+        final path = file.name;
+        if (file.bytes != null) {
+          _contentCache[path] = file.bytes!;
+        }
+        children.add(FileNodeFile(file.name, path));
+      }
+
+      return FileNodeDirectory(rootName, '/', children: children);
+    } catch (e) {
+      debugPrint('Error picking files on web: $e');
+      return null;
+    }
+  }
+
+  @override
+  Future<String?> readFile(FileNodeFile file) async {
+    // On web, we hope we cached the bytes
+    final bytes = _contentCache[file.path];
+    if (bytes != null) {
+      return utf8.decode(bytes);
+    }
+    return '// Error: Content lost or not loaded';
+  }
+}
