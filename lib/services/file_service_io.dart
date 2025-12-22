@@ -57,4 +57,43 @@ class FileServiceImpl implements FileService {
   Future<String?> readFile(FileNodeFile file) async {
     return File(file.path).readAsString();
   }
+
+  @override
+  Future<FileNodeFile?> createFile(String parentPath, String name) async {
+    try {
+      final file = File(p.join(parentPath, name));
+      if (await file.exists()) return null;
+      await file.create();
+      return FileNodeFile(name, file.path);
+    } catch (e) {
+      debugPrint('Error creating file: $e');
+      return null;
+    }
+  }
+
+  @override
+  Future<FileNodeDirectory?> createDirectory(
+    String parentPath,
+    String name,
+  ) async {
+    try {
+      final dir = Directory(p.join(parentPath, name));
+      if (await dir.exists()) return null;
+      await dir.create();
+      return FileNodeDirectory(name, dir.path, children: []);
+    } catch (e) {
+      debugPrint('Error creating directory: $e');
+      return null;
+    }
+  }
+
+  @override
+  Future<void> saveFile(FileNodeFile file, String content) async {
+    try {
+      final f = File(file.path);
+      await f.writeAsString(content);
+    } catch (e) {
+      debugPrint('Error saving file: $e');
+    }
+  }
 }

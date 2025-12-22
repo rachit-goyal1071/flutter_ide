@@ -56,4 +56,26 @@ class FileServiceImpl implements FileService {
     }
     return '// Error: Content lost or not loaded';
   }
+
+  @override
+  Future<FileNodeFile?> createFile(String parentPath, String name) async {
+    // Web: Creating files in local FS not supported via browser directly
+    return null;
+  }
+
+  @override
+  Future<FileNodeDirectory?> createDirectory(
+    String parentPath,
+    String name,
+  ) async {
+    // Web: Creating folders not supported
+    return null;
+  }
+
+  @override
+  Future<void> saveFile(FileNodeFile file, String content) async {
+    // Web: Saving files purely in browser memory/cache for now
+    _contentCache[file.path] = utf8.encode(content);
+    // Real persistence would require File System Access API or download trigger
+  }
 }
