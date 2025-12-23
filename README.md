@@ -40,15 +40,17 @@ A lightweight, cross-platform code editor built with Flutter. Features a VS Code
 
 ## Screenshots
 
-````carousel
+### Main IDE Interface
 ![Main IDE interface showing file explorer, code editor with main.dart open, and integrated terminal](assets/screenshots/main_interface.png)
-<!-- slide -->
+
+### Pub.dev Package Search
 ![Pub.dev package search sidebar showing popular Flutter packages](assets/screenshots/pubdev_search.png)
-<!-- slide -->
+
+### Package Details View
 ![Package details view for flutter_svg with installation options and metadata](assets/screenshots/package_details.png)
-<!-- slide -->
+
+### Package Documentation
 ![Embedded pub.dev documentation view for flutter_svg package](assets/screenshots/package_documentation.png)
-````
 
 
 The editor features:
