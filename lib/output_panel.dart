@@ -7,6 +7,7 @@ import 'package:xterm/xterm.dart';
 
 class OutputPanel extends StatefulWidget {
   final bool isVisible;
+  final double height;
   final String? workingDirectory;
   final String? initialCommand;
   final VoidCallback? onCommandExecuted;
@@ -14,6 +15,7 @@ class OutputPanel extends StatefulWidget {
   const OutputPanel({
     super.key,
     required this.isVisible,
+    this.height = 250,
     this.workingDirectory,
     this.initialCommand,
     this.onCommandExecuted,
@@ -144,7 +146,7 @@ class _OutputPanelState extends State<OutputPanel> {
     if (!widget.isVisible) return const SizedBox.shrink();
 
     return Container(
-      height: 250,
+      height: widget.height,
       decoration: const BoxDecoration(
         color: Color(0xFF1E1E1E),
         border: Border(top: BorderSide(color: Color(0xFF3C3C3C), width: 1)),

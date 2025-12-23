@@ -13,6 +13,14 @@ import 'flutter_sidebar.dart';
 import 'output_panel.dart';
 import 'pubdev_sidebar.dart';
 
+// Global function to run terminal commands from anywhere
+void Function(String command)? _globalRunTerminalCommand;
+
+/// Run a command in the terminal from anywhere in the app
+void runTerminalCommand(String command) {
+  _globalRunTerminalCommand?.call(command);
+}
+
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key});
 
@@ -43,9 +51,13 @@ class _EditorScreenState extends State<EditorScreen> {
 
   // Output panel state
   bool _isOutputVisible = false;
+  double _terminalHeight = 250;
 
   // Terminal command to run
   String? _pendingCommand;
+
+  // Resizable sidebar width
+  double _sidebarWidth = 250;
 
   // File watchers for detecting external changes
   final Map<String, StreamSubscription<FileSystemEvent>> _fileWatchers = {};
@@ -57,6 +69,8 @@ class _EditorScreenState extends State<EditorScreen> {
   void initState() {
     super.initState();
     HardwareKeyboard.instance.addHandler(_handleGlobalKeyEvent);
+    // Register global terminal command handler
+    _globalRunTerminalCommand = _runTerminalCommand;
   }
 
   WebViewController _getOrCreateWebViewController(String url) {
@@ -113,6 +127,8 @@ class _EditorScreenState extends State<EditorScreen> {
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
+    // Clean up global terminal command handler
+    _globalRunTerminalCommand = null;
     // Clean up all file watchers
     for (final subscription in _fileWatchers.values) {
       subscription.cancel();
@@ -643,19 +659,29 @@ class _EditorScreenState extends State<EditorScreen> {
                 // Activity Bar
                 _buildActivityBar(),
 
-                // Sidebar
-                if (_selectedActivityIndex == 0) _buildSidebar(),
+                // Sidebar with resizable width
+                if (_selectedActivityIndex == 0)
+                  SizedBox(width: _sidebarWidth, child: _buildSidebar()),
                 if (_selectedActivityIndex == 1)
-                  FlutterSidebar(
-                    rootNode: _rootNode,
-                    onFileSelected: _openFile,
-                    onPickDirectory: _pickDirectory,
+                  SizedBox(
+                    width: _sidebarWidth,
+                    child: FlutterSidebar(
+                      rootNode: _rootNode,
+                      onFileSelected: _openFile,
+                      onPickDirectory: _pickDirectory,
+                    ),
                   ),
                 if (_selectedActivityIndex == 2)
-                  PubDevSidebar(
-                    onOpenInBrowser: _openWebTab,
-                    onRunCommand: _runTerminalCommand,
+                  SizedBox(
+                    width: _sidebarWidth + 50, // PubDev sidebar is wider
+                    child: PubDevSidebar(
+                      onOpenInBrowser: _openWebTab,
+                      onRunCommand: _runTerminalCommand,
+                    ),
                   ),
+
+                // Horizontal resize handle for sidebar
+                _buildHorizontalResizeHandle(),
 
                 // Main Editor Area
                 Expanded(
@@ -676,9 +702,13 @@ class _EditorScreenState extends State<EditorScreen> {
                                 : _buildEditor(),
                       ),
 
+                      // Vertical resize handle for terminal
+                      if (_isOutputVisible) _buildVerticalResizeHandle(),
+
                       // Output Panel (Terminal)
                       OutputPanel(
                         isVisible: _isOutputVisible,
+                        height: _terminalHeight,
                         workingDirectory: _rootNode?.path,
                         initialCommand: _pendingCommand,
                         onCommandExecuted: () {
@@ -697,6 +727,60 @@ class _EditorScreenState extends State<EditorScreen> {
           // Status Bar
           _buildStatusBar(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildHorizontalResizeHandle() {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      child: GestureDetector(
+        onHorizontalDragUpdate: (details) {
+          setState(() {
+            _sidebarWidth = (_sidebarWidth + details.delta.dx).clamp(150.0, 500.0);
+          });
+        },
+        child: Container(
+          width: 4,
+          color: const Color(0xFF3C3C3C),
+          child: Center(
+            child: Container(
+              width: 2,
+              height: 20,
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVerticalResizeHandle() {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeRow,
+      child: GestureDetector(
+        onVerticalDragUpdate: (details) {
+          setState(() {
+            _terminalHeight = (_terminalHeight - details.delta.dy).clamp(100.0, 500.0);
+          });
+        },
+        child: Container(
+          height: 4,
+          color: const Color(0xFF3C3C3C),
+          child: Center(
+            child: Container(
+              width: 20,
+              height: 2,
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -732,7 +816,6 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Widget _buildSidebar() {
     return Container(
-      width: 250,
       color: const Color(0xFF181818),
       child: Column(
         children: [
@@ -851,8 +934,8 @@ class _EditorScreenState extends State<EditorScreen> {
           if (_rootNode != null)
             IconButton(
               icon: const Icon(Icons.play_arrow, color: Colors.green, size: 20),
-              tooltip: 'Run App',
-              onPressed: _showTerminal,
+              tooltip: 'Run App (flutter run)',
+              onPressed: () => _runTerminalCommand('flutter run'),
               padding: const EdgeInsets.all(8),
             ),
 

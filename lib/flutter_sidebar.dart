@@ -27,7 +27,6 @@ class _FlutterSidebarState extends State<FlutterSidebar> {
   Widget build(BuildContext context) {
     if (widget.rootNode == null) {
       return Container(
-        width: 250,
         color: const Color(0xFF181818),
         child: Center(
           child: Column(
@@ -51,7 +50,6 @@ class _FlutterSidebarState extends State<FlutterSidebar> {
     }
 
     return Container(
-      width: 250,
       color: const Color(0xFF181818),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

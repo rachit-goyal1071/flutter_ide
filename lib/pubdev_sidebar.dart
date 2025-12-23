@@ -104,7 +104,6 @@ class _PubDevSidebarState extends State<PubDevSidebar> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 300,
       color: const Color(0xFF181818),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
