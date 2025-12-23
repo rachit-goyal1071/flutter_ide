@@ -1,6 +1,6 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart'; // for debugPrint
 // ignore: avoid_web_libraries_in_flutter
 // import 'dart:html' as html; // Unused
 import '../models/file_system_entity.dart';
@@ -42,7 +42,7 @@ class FileServiceImpl implements FileService {
 
       return FileNodeDirectory(rootName, '/', children: children);
     } catch (e) {
-      debugPrint('Error picking files on web: $e');
+      // Error picking files on web
       return null;
     }
   }
@@ -77,5 +77,23 @@ class FileServiceImpl implements FileService {
     // Web: Saving files purely in browser memory/cache for now
     _contentCache[file.path] = utf8.encode(content);
     // Real persistence would require File System Access API or download trigger
+  }
+
+  @override
+  Future<bool> deleteFile(String filePath) async {
+    // Not supported on web
+    return false;
+  }
+
+  @override
+  Future<bool> deleteDirectory(String directoryPath) async {
+    // Not supported on web
+    return false;
+  }
+
+  @override
+  Future<bool> rename(String oldPath, String newName) async {
+    // Not supported on web
+    return false;
   }
 }

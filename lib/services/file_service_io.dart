@@ -43,7 +43,7 @@ class FileServiceImpl implements FileService {
         }
       }
     } catch (e) {
-      debugPrint('Error listing directory: $e');
+      // Error listing directory
     }
 
     return FileNodeDirectory(
@@ -66,7 +66,7 @@ class FileServiceImpl implements FileService {
       await file.create();
       return FileNodeFile(name, file.path);
     } catch (e) {
-      debugPrint('Error creating file: $e');
+      // Error creating file
       return null;
     }
   }
@@ -82,7 +82,7 @@ class FileServiceImpl implements FileService {
       await dir.create();
       return FileNodeDirectory(name, dir.path, children: []);
     } catch (e) {
-      debugPrint('Error creating directory: $e');
+      // Error creating directory
       return null;
     }
   }
@@ -93,7 +93,60 @@ class FileServiceImpl implements FileService {
       final f = File(file.path);
       await f.writeAsString(content);
     } catch (e) {
-      debugPrint('Error saving file: $e');
+      // Error saving file
+    }
+  }
+
+  @override
+  Future<bool> deleteFile(String filePath) async {
+    try {
+      final file = File(filePath);
+      if (await file.exists()) {
+        await file.delete();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      // Error deleting file
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> deleteDirectory(String directoryPath) async {
+    try {
+      final dir = Directory(directoryPath);
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      // Error deleting directory
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> rename(String oldPath, String newName) async {
+    try {
+      final entity = FileSystemEntity.typeSync(oldPath);
+
+      if (entity == FileSystemEntityType.file) {
+        final file = File(oldPath);
+        final newPath = p.join(p.dirname(oldPath), newName);
+        await file.rename(newPath);
+        return true;
+      } else if (entity == FileSystemEntityType.directory) {
+        final dir = Directory(oldPath);
+        final newPath = p.join(p.dirname(oldPath), newName);
+        await dir.rename(newPath);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      // Error renaming
+      return false;
     }
   }
 }

@@ -7,6 +7,8 @@ class FileTree extends StatefulWidget {
   final Function(FileNodeFile) onFileSelected;
   final Function(FileNodeDirectory) onDirectorySelected;
   final VoidCallback? onPickDirectory;
+  final Function(FileNode)? onDelete;
+  final Function(FileNode)? onRename;
 
   const FileTree({
     super.key,
@@ -14,6 +16,8 @@ class FileTree extends StatefulWidget {
     required this.onFileSelected,
     required this.onDirectorySelected,
     this.onPickDirectory,
+    this.onDelete,
+    this.onRename,
   });
 
   @override
@@ -85,6 +89,12 @@ class _FileTreeState extends State<FileTree> {
             });
             widget.onDirectorySelected(node);
           },
+          onDelete: widget.onDelete != null
+              ? () => widget.onDelete!(node)
+              : null,
+          onRename: widget.onRename != null
+              ? () => widget.onRename!(node)
+              : null,
           child: Padding(
             padding: EdgeInsets.only(
               left: depth * 12.0 + 8,
@@ -149,6 +159,8 @@ class _FileTreeState extends State<FileTree> {
         });
         widget.onFileSelected(file);
       },
+      onDelete: widget.onDelete != null ? () => widget.onDelete!(file) : null,
+      onRename: widget.onRename != null ? () => widget.onRename!(file) : null,
       child: Padding(
         padding: EdgeInsets.only(
           left: depth * 12.0 + 24,
@@ -233,11 +245,15 @@ class _FileTreeState extends State<FileTree> {
 class _HoverableItem extends StatefulWidget {
   final bool isSelected;
   final VoidCallback onTap;
+  final VoidCallback? onDelete;
+  final VoidCallback? onRename;
   final Widget child;
 
   const _HoverableItem({
     required this.isSelected,
     required this.onTap,
+    this.onDelete,
+    this.onRename,
     required this.child,
   });
 
@@ -255,15 +271,46 @@ class _HoverableItemState extends State<_HoverableItem> {
       onExit: (_) => setState(() => _isHovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
+        onSecondaryTapDown: widget.onDelete != null
+            ? (details) => _showContextMenu(context, details.globalPosition)
+            : null,
         child: Container(
           color: widget.isSelected
               ? const Color(0x33007ACC)
               : _isHovered
-                  ? const Color(0x1AFFFFFF)
-                  : null,
+              ? const Color(0x1AFFFFFF)
+              : null,
           child: widget.child,
         ),
       ),
+    );
+  }
+
+  void _showContextMenu(BuildContext context, Offset position) {
+    showMenu(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx + 1,
+        position.dy + 1,
+      ),
+      items: [
+        if (widget.onRename != null)
+          PopupMenuItem(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            height: 32,
+            onTap: widget.onRename,
+            child: const Text('Rename', style: TextStyle(fontSize: 13)),
+          ),
+        if (widget.onDelete != null)
+          PopupMenuItem(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            height: 32,
+            onTap: widget.onDelete,
+            child: const Text('Delete', style: TextStyle(fontSize: 13)),
+          ),
+      ],
     );
   }
 }

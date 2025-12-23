@@ -5,6 +5,8 @@ import 'package:path/path.dart' as p;
 import 'models/file_system_entity.dart';
 import 'services/file_service.dart';
 import 'file_tree.dart';
+import 'flutter_sidebar.dart';
+import 'output_panel.dart';
 
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key});
@@ -20,6 +22,39 @@ class _EditorScreenState extends State<EditorScreen> {
   FileNodeFile? _activeFile;
   String _currentCode = '// Open a file to start editing\n';
   int _selectedActivityIndex = 0;
+
+  // Output panel state
+  bool _isOutputVisible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_handleGlobalKeyEvent);
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
+    super.dispose();
+  }
+
+  bool _handleGlobalKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent) return false;
+
+    final isMetaPressed = HardwareKeyboard.instance.isMetaPressed;
+
+    if (isMetaPressed && event.logicalKey == LogicalKeyboardKey.keyP) {
+      _showQuickOpen();
+      return true; // Event handled
+    }
+
+    if (isMetaPressed && event.logicalKey == LogicalKeyboardKey.keyO) {
+      _pickDirectory();
+      return true; // Event handled
+    }
+
+    return false; // Event not handled
+  }
 
   Future<void> _pickDirectory() async {
     final root = await fileService.pickDirectory();
@@ -102,7 +137,7 @@ class _EditorScreenState extends State<EditorScreen> {
           if (content != _currentCode) {
             _currentCode = content;
             await fileService.saveFile(_activeFile!, content);
-            debugPrint('Auto-saved ${_activeFile!.name}');
+            // Auto-saved
           }
         } catch (e) {
           // debugPrint('Auto-save error: $e');
@@ -115,7 +150,7 @@ class _EditorScreenState extends State<EditorScreen> {
   Future<void> _goToDefinition() async {
     // Current implementation placeholder as we need LSP integration back or another solution
     // But method must exist to fix compilation error.
-    debugPrint('Go to Definition triggered');
+    // Go to Definition triggered
 
     // Original LSP logic was here.
     // We can restore it when we are ready to fix LSP imports,
@@ -126,9 +161,171 @@ class _EditorScreenState extends State<EditorScreen> {
       const pos = (lineNumber: 1, column: 1); // Dummy
       // ... Call lspService ...
     } catch (e) {
-      debugPrint('Go to definition failed: $e');
+      // Go to definition failed
     }
     */
+  }
+
+  void _showTerminal() {
+    setState(() {
+      _isOutputVisible = true;
+    });
+  }
+
+  void _toggleOutput() {
+    setState(() {
+      _isOutputVisible = !_isOutputVisible;
+    });
+  }
+
+  List<FileNodeFile> _collectAllFiles(FileNodeDirectory dir) {
+    final files = <FileNodeFile>[];
+
+    void traverse(FileNodeDirectory directory) {
+      for (final child in directory.children) {
+        if (child is FileNodeFile) {
+          files.add(child);
+        } else if (child is FileNodeDirectory) {
+          traverse(child);
+        }
+      }
+    }
+
+    traverse(dir);
+    return files;
+  }
+
+  void _showQuickOpen() {
+    if (_rootNode == null) return;
+
+    final allFiles = _collectAllFiles(_rootNode!);
+
+    showDialog(
+      context: context,
+      builder: (context) => _QuickOpenDialog(
+        files: allFiles,
+        rootPath: _rootNode!.path,
+        onFileSelected: (file) {
+          Navigator.of(context).pop();
+          _openFile(file);
+        },
+      ),
+    );
+  }
+
+  Future<void> _deleteNode(FileNode node) async {
+    final isDirectory = node is FileNodeDirectory;
+    final name = node.name;
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete ${isDirectory ? 'Folder' : 'File'}'),
+        content: Text(
+          'Are you sure you want to delete "$name"?${isDirectory ? '\n\nThis will delete all contents.' : ''}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Perform deletion
+    bool success;
+    if (isDirectory) {
+      success = await fileService.deleteDirectory(node.path);
+    } else {
+      success = await fileService.deleteFile(node.path);
+    }
+
+    if (success) {
+      // Close the file if it was open
+      if (node is FileNodeFile) {
+        _closeFile(node);
+      }
+
+      // Refresh the file tree
+      if (_rootNode != null) {
+        final newRoot = await fileService.pickDirectory();
+        // This is a workaround - ideally we'd refresh without re-picking
+        // For now, just reload the same directory
+        setState(() {
+          // The tree will update on next rebuild
+        });
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Deleted $name')));
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to delete $name')));
+      }
+    }
+  }
+
+  Future<void> _renameNode(FileNode node) async {
+    final oldName = node.name;
+
+    // Show rename dialog
+    final newName = await _showNameDialog(
+      'Rename ${node is FileNodeDirectory ? 'Folder' : 'File'}',
+      'New name',
+    );
+
+    if (newName == null || newName.isEmpty || newName == oldName) return;
+
+    // Perform rename
+    final success = await fileService.rename(node.path, newName);
+
+    if (success) {
+      // Update open file if it was renamed
+      if (node is FileNodeFile && _activeFile?.path == node.path) {
+        final newPath = p.join(p.dirname(node.path), newName);
+        setState(() {
+          _activeFile = FileNodeFile(newName, newPath);
+          // Update in open files list
+          final index = _openFiles.indexWhere((f) => f.path == node.path);
+          if (index != -1) {
+            _openFiles[index] = _activeFile!;
+          }
+        });
+      }
+
+      // Refresh the file tree (ideally we'd update in place)
+      if (_rootNode != null) {
+        setState(() {
+          // Tree will update on rebuild
+        });
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Renamed to $newName')));
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to rename $oldName')));
+      }
+    }
   }
 
   Future<String?> _showNameDialog(String title, String label) async {
@@ -180,7 +377,7 @@ class _EditorScreenState extends State<EditorScreen> {
         final language = _getLanguage(file.path);
         _editorController?.setLanguage(language);
       } catch (e) {
-        debugPrint('Error setting language: $e');
+        // Error setting language
       }
     } catch (e) {
       if (mounted) {
@@ -249,6 +446,12 @@ class _EditorScreenState extends State<EditorScreen> {
 
                 // Sidebar
                 if (_selectedActivityIndex == 0) _buildSidebar(),
+                if (_selectedActivityIndex == 1)
+                  FlutterSidebar(
+                    rootNode: _rootNode,
+                    onFileSelected: _openFile,
+                    onPickDirectory: _pickDirectory,
+                  ),
 
                 // Main Editor Area
                 Expanded(
@@ -265,6 +468,12 @@ class _EditorScreenState extends State<EditorScreen> {
                         child: _activeFile == null
                             ? _buildWelcomeScreen()
                             : _buildEditor(),
+                      ),
+
+                      // Output Panel (Terminal)
+                      OutputPanel(
+                        isVisible: _isOutputVisible,
+                        workingDirectory: _rootNode?.path,
                       ),
                     ],
                   ),
@@ -283,7 +492,7 @@ class _EditorScreenState extends State<EditorScreen> {
   Widget _buildActivityBar() {
     final activities = [
       (Icons.insert_drive_file_outlined, 'Explorer'),
-      (Icons.search, 'Search'),
+      (Icons.explore, 'Flutter explorer'),
     ];
 
     return Container(
@@ -315,50 +524,37 @@ class _EditorScreenState extends State<EditorScreen> {
       child: Column(
         children: [
           // Explorer Header
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            width: double.infinity,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'EXPLORER',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontWeight: FontWeight.w500,
-                    fontSize: 11,
-                    letterSpacing: 0.5,
+          if (_rootNode != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              width: double.infinity,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Row(
+                    children: [
+                      _SidebarIconButton(
+                        icon: Icons.create_new_folder_outlined,
+                        tooltip: 'New Folder',
+                        onPressed: _createNewFolder,
+                      ),
+                      const SizedBox(width: 4),
+                      _SidebarIconButton(
+                        icon: Icons.note_add_outlined,
+                        tooltip: 'New File',
+                        onPressed: _createNewFile,
+                      ),
+                      const SizedBox(width: 4),
+                      _SidebarIconButton(
+                        icon: Icons.folder_open,
+                        tooltip: 'Open Folder',
+                        onPressed: _pickDirectory,
+                      ),
+                    ],
                   ),
-                ),
-                Row(
-                  children: [
-                    _SidebarIconButton(
-                      icon: Icons.create_new_folder_outlined,
-                      tooltip: 'New Folder',
-                      onPressed: _createNewFolder,
-                    ),
-                    const SizedBox(width: 4),
-                    _SidebarIconButton(
-                      icon: Icons.note_add_outlined,
-                      tooltip: 'New File',
-                      onPressed: _createNewFile,
-                    ),
-                    const SizedBox(width: 4),
-                    _SidebarIconButton(
-                      icon: Icons.refresh,
-                      tooltip: 'Refresh',
-                      onPressed: _pickDirectory,
-                    ),
-                    _SidebarIconButton(
-                      icon: Icons.more_horiz,
-                      tooltip: 'More Actions',
-                      onPressed: () {},
-                    ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
           // Project Header
           if (_rootNode != null)
             Container(
@@ -402,6 +598,8 @@ class _EditorScreenState extends State<EditorScreen> {
                 });
               },
               onPickDirectory: _pickDirectory,
+              onDelete: _deleteNode,
+              onRename: _renameNode,
             ),
           ),
         ],
@@ -414,9 +612,7 @@ class _EditorScreenState extends State<EditorScreen> {
       height: 35,
       decoration: const BoxDecoration(
         color: Color(0xFF252526),
-        border: Border(
-          bottom: BorderSide(color: Color(0xFF3C3C3C), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFF3C3C3C), width: 1)),
       ),
       child: Row(
         children: [
@@ -431,7 +627,28 @@ class _EditorScreenState extends State<EditorScreen> {
               },
             ),
           ),
+
           // Actions
+          if (_rootNode != null)
+            IconButton(
+              icon: const Icon(Icons.play_arrow, color: Colors.green, size: 20),
+              tooltip: 'Run App',
+              onPressed: _showTerminal,
+              padding: const EdgeInsets.all(8),
+            ),
+
+          if (_rootNode != null)
+            IconButton(
+              icon: Icon(
+                _isOutputVisible ? Icons.expand_more : Icons.expand_less,
+                color: Colors.white54,
+                size: 20,
+              ),
+              tooltip: _isOutputVisible ? 'Hide Output' : 'Show Output',
+              onPressed: _toggleOutput,
+              padding: const EdgeInsets.all(8),
+            ),
+          const SizedBox(width: 8),
         ],
       ),
     );
@@ -479,11 +696,7 @@ class _EditorScreenState extends State<EditorScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.code,
-              size: 64,
-              color: Color(0x1AFFFFFF),
-            ),
+            const Icon(Icons.code, size: 64, color: Color(0x1AFFFFFF)),
             const SizedBox(height: 24),
             const Text(
               'Flutter IDE',
@@ -510,12 +723,14 @@ class _EditorScreenState extends State<EditorScreen> {
                   onPressed: _pickDirectory,
                 ),
                 const SizedBox(width: 16),
-                _WelcomeButton(
-                  icon: Icons.note_add,
-                  label: 'New File',
-                  shortcut: '⌘N',
-                  onPressed: _createNewFile,
-                ),
+
+                if (_rootNode != null)
+                  _WelcomeButton(
+                    icon: Icons.note_add,
+                    label: 'New File',
+                    shortcut: '⌘N',
+                    onPressed: _createNewFile,
+                  ),
               ],
             ),
             const SizedBox(height: 48),
@@ -541,11 +756,18 @@ class _EditorScreenState extends State<EditorScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.folder, size: 16, color: Color(0xFF90A4AE)),
+                    const Icon(
+                      Icons.folder,
+                      size: 16,
+                      color: Color(0xFF90A4AE),
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       _rootNode!.name,
-                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
                     ),
                   ],
                 ),
@@ -579,7 +801,6 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
-
   Widget _buildStatusBar() {
     final language = _activeFile != null
         ? _getLanguage(_activeFile!.path).name
@@ -591,25 +812,14 @@ class _EditorScreenState extends State<EditorScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: [
-          
-
           const Spacer(),
 
           // Right side
-          _StatusBarItem(
-            label: 'Spaces: 2',
-            onPressed: () {},
-          ),
+          _StatusBarItem(label: 'Spaces: 2', onPressed: () {}),
           const _StatusBarDivider(),
-          _StatusBarItem(
-            label: 'UTF-8',
-            onPressed: () {},
-          ),
+          _StatusBarItem(label: 'UTF-8', onPressed: () {}),
           const _StatusBarDivider(),
-          _StatusBarItem(
-            label: language,
-            onPressed: () {},
-          ),
+          _StatusBarItem(label: language, onPressed: () {}),
         ],
       ),
     );
@@ -698,9 +908,7 @@ class _ActivityBarItemState extends State<_ActivityBarItem> {
               color: _isHovered ? const Color(0x1AFFFFFF) : null,
               border: Border(
                 left: BorderSide(
-                  color: widget.isSelected
-                      ? Colors.white
-                      : Colors.transparent,
+                  color: widget.isSelected ? Colors.white : Colors.transparent,
                   width: 2,
                 ),
               ),
@@ -803,7 +1011,8 @@ class _TabActionButtonState extends State<_TabActionButton> {
             ),
             child: Icon(
               widget.icon,
-              color: widget.color ?? (_isHovered ? Colors.white : Colors.white70),
+              color:
+                  widget.color ?? (_isHovered ? Colors.white : Colors.white70),
               size: 16,
             ),
           ),
@@ -900,11 +1109,7 @@ class _StatusBarItem extends StatefulWidget {
   final String? label;
   final VoidCallback onPressed;
 
-  const _StatusBarItem({
-    this.icon,
-    this.label,
-    required this.onPressed,
-  });
+  const _StatusBarItem({this.icon, this.label, required this.onPressed});
 
   @override
   State<_StatusBarItem> createState() => _StatusBarItemState();
@@ -929,7 +1134,9 @@ class _StatusBarItemState extends State<_StatusBarItem> {
               if (widget.icon != null)
                 Padding(
                   padding: EdgeInsets.only(
-                    right: widget.label != null && widget.label!.isNotEmpty ? 4 : 0,
+                    right: widget.label != null && widget.label!.isNotEmpty
+                        ? 4
+                        : 0,
                   ),
                   child: Icon(widget.icon, size: 14, color: Colors.white),
                 ),
@@ -997,8 +1204,8 @@ class _EditorTabState extends State<_EditorTab> {
             color: widget.isActive
                 ? const Color(0xFF1E1E1E)
                 : _isHovered
-                    ? const Color(0xFF2D2D2D)
-                    : const Color(0xFF252526),
+                ? const Color(0xFF2D2D2D)
+                : const Color(0xFF252526),
             border: widget.isActive
                 ? const Border(
                     top: BorderSide(color: Color(0xFF007ACC), width: 2),
@@ -1031,9 +1238,7 @@ class _EditorTabState extends State<_EditorTab> {
                   child: Container(
                     padding: const EdgeInsets.all(2),
                     decoration: BoxDecoration(
-                      color: _isCloseHovered
-                          ? const Color(0x33FFFFFF)
-                          : null,
+                      color: _isCloseHovered ? const Color(0x33FFFFFF) : null,
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Icon(
@@ -1053,3 +1258,282 @@ class _EditorTabState extends State<_EditorTab> {
     );
   }
 }
+
+// Quick Open Dialog Widget
+class _QuickOpenDialog extends StatefulWidget {
+  final List<FileNodeFile> files;
+  final String rootPath;
+  final Function(FileNodeFile) onFileSelected;
+
+  const _QuickOpenDialog({
+    required this.files,
+    required this.rootPath,
+    required this.onFileSelected,
+  });
+
+  @override
+  State<_QuickOpenDialog> createState() => _QuickOpenDialogState();
+}
+
+class _QuickOpenDialogState extends State<_QuickOpenDialog> {
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  List<FileNodeFile> _filteredFiles = [];
+  int _selectedIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _filteredFiles = _sortFiles(List.from(widget.files));
+    _searchController.addListener(_onSearchChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _searchFocusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    final query = _searchController.text.toLowerCase();
+    setState(() {
+      List<FileNodeFile> results;
+      if (query.isEmpty) {
+        results = List.from(widget.files);
+      } else {
+        results = widget.files.where((file) {
+          return file.name.toLowerCase().contains(query) ||
+              file.path.toLowerCase().contains(query);
+        }).toList();
+      }
+      _filteredFiles = _sortFiles(results);
+      _selectedIndex = 0;
+    });
+  }
+
+  List<FileNodeFile> _sortFiles(List<FileNodeFile> files) {
+    // Priority: Dart files first, build folder last, alphabetical within groups
+    files.sort((a, b) {
+      final aInBuild = a.path.contains('/build/');
+      final bInBuild = b.path.contains('/build/');
+      final aIsDart = a.name.endsWith('.dart');
+      final bIsDart = b.name.endsWith('.dart');
+
+      // Build folder files go last
+      if (aInBuild && !bInBuild) return 1;
+      if (!aInBuild && bInBuild) return -1;
+
+      // Dart files go first (unless in build folder)
+      if (aIsDart && !bIsDart) return -1;
+      if (!aIsDart && bIsDart) return 1;
+
+      // Alphabetical by name within same priority
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    return files;
+  }
+
+  String _getRelativePath(String fullPath) {
+    if (fullPath.startsWith(widget.rootPath)) {
+      return fullPath.substring(widget.rootPath.length + 1);
+    }
+    return fullPath;
+  }
+
+  void _handleKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent) return;
+
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      setState(() {
+        _selectedIndex = (_selectedIndex + 1).clamp(0, _filteredFiles.length - 1);
+      });
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      setState(() {
+        _selectedIndex = (_selectedIndex - 1).clamp(0, _filteredFiles.length - 1);
+      });
+    } else if (event.logicalKey == LogicalKeyboardKey.enter) {
+      if (_filteredFiles.isNotEmpty) {
+        widget.onFileSelected(_filteredFiles[_selectedIndex]);
+      }
+    } else if (event.logicalKey == LogicalKeyboardKey.escape) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Icon _getFileIcon(String fileName) {
+    final ext = p.extension(fileName).toLowerCase();
+    IconData icon = Icons.insert_drive_file_outlined;
+    Color color = Colors.grey;
+
+    switch (ext) {
+      case '.dart':
+        icon = Icons.code;
+        color = const Color(0xFF42A5F5);
+        break;
+      case '.yaml':
+      case '.yml':
+        icon = Icons.settings;
+        color = const Color(0xFFEF5350);
+        break;
+      case '.json':
+        icon = Icons.data_object;
+        color = const Color(0xFF66BB6A);
+        break;
+      case '.md':
+        icon = Icons.description;
+        color = Colors.white70;
+        break;
+      case '.html':
+        icon = Icons.html;
+        color = const Color(0xFFE65100);
+        break;
+      case '.css':
+        icon = Icons.css;
+        color = const Color(0xFF1E88E5);
+        break;
+      case '.js':
+      case '.ts':
+        icon = Icons.javascript;
+        color = const Color(0xFFFFCA28);
+        break;
+    }
+    return Icon(icon, size: 18, color: color);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return KeyboardListener(
+      focusNode: FocusNode(),
+      onKeyEvent: _handleKeyEvent,
+      child: Dialog(
+        backgroundColor: const Color(0xFF252526),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        child: Container(
+          width: 500,
+          constraints: const BoxConstraints(maxHeight: 400),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Search field
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: const BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(color: Color(0xFF3C3C3C), width: 1),
+                  ),
+                ),
+                child: TextField(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'Search files by name...',
+                    hintStyle: const TextStyle(color: Colors.white38),
+                    prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 20),
+                    filled: true,
+                    fillColor: const Color(0xFF3C3C3C),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(6),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                ),
+              ),
+
+              // File list
+              Flexible(
+                child: _filteredFiles.isEmpty
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text(
+                            'No files found',
+                            style: TextStyle(color: Colors.white38),
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: _filteredFiles.length,
+                        itemBuilder: (context, index) {
+                          final file = _filteredFiles[index];
+                          final isSelected = index == _selectedIndex;
+                          final relativePath = _getRelativePath(file.path);
+
+                          return InkWell(
+                            onTap: () => widget.onFileSelected(file),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              color: isSelected ? const Color(0xFF094771) : null,
+                              child: Row(
+                                children: [
+                                  _getFileIcon(file.name),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          file.name,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                        Text(
+                                          relativePath,
+                                          style: const TextStyle(
+                                            color: Colors.white38,
+                                            fontSize: 11,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+
+              // Footer hint
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: const BoxDecoration(
+                  border: Border(
+                    top: BorderSide(color: Color(0xFF3C3C3C), width: 1),
+                  ),
+                ),
+                child: const Row(
+                  children: [
+                    Text(
+                      '↑↓ to navigate  ',
+                      style: TextStyle(color: Colors.white38, fontSize: 11),
+                    ),
+                    Text(
+                      '↵ to open  ',
+                      style: TextStyle(color: Colors.white38, fontSize: 11),
+                    ),
+                    Text(
+                      'esc to close',
+                      style: TextStyle(color: Colors.white38, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+

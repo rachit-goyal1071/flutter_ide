@@ -41,6 +41,8 @@ dependencies:
   webview_flutter: ^4.10.0
   webview_flutter_web: ^0.2.3
   json_rpc_2: ^4.0.0
+  xterm: ^4.0.0
+  flutter_pty: ^0.4.0
 
 
 dev_dependencies:
