@@ -200,7 +200,7 @@ runTerminalCommand('dart analyze');
 - [x] Command+P and Command+O to search files and open folder.
 - [ ] LSP (Language Server Protocol) integration for Dart
 - [ ] Search across files
-- [ ] Git integration
+- [x] Git integration
 - [ ] Extensions support
 - [ ] Custom themes
 - [ ] Split editor views
